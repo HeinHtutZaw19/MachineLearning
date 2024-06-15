@@ -3,6 +3,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from mpl_toolkits import mplot3d
 import math
+import plotly.graph_objs as go
 
 class SimpleLinearRegression():
     def __init__(self, file):
@@ -12,7 +13,7 @@ class SimpleLinearRegression():
         self.Y = values[:,1]
         #Mean Normalization / Feature Scaling
         self.X = (self.X-np.mean(self.X))/(np.max(self.X)-np.min(self.X)) 
-        self.w = 0
+        self.w = np.zeros(len(self.X[0]))
         self.b = 0
         self.true_w, self.true_b = 0.6872516865369586, 3.330238095238095
         self.cost_history = []
@@ -142,15 +143,128 @@ class SimpleLinearRegression():
 
 
 class MultipleLinearRegression(SimpleLinearRegression):
-    def __init__(self, file):
-        self.file = file
-        values = np.array(pd.read_csv(file).values,'float')
-        self.X = values[:,:-1]
-        self.Y = values[:,-1]
-        #Mean Normalization / Feature Scaling
-        self.X = (self.X-np.mean(self.X))/(np.max(self.X)-np.min(self.X)) 
-        self.w = 0
-        self.b = 0
+    def __init__(self, X_train, y_train):
+        # self.file = file
+        # values = np.array(pd.read_csv(file).values,'float')
+        self.X, self.Y = X_train, y_train
+        #Feature Scaling is more essential now to make the gradient descend faster
+        self.mean, self.std = np.mean(self.X, axis=0), np.std(self.X, axis=0)
+        self.X = self._zscore_normalize(self.X)
+        self.w,self.b = None, None
         self.cost_history = []
+
+    def _zscore_normalize(self, X):
+        return (X-self.mean) / self.std
+    
+    def predict(self, X):
+        X = self._zscore_normalize(X)
+        return np.dot(X, self.w) + self.b
+    
+    def compute_cost(self):
+        m,_ = self.X.shape
+        y_hat = np.dot(self.X, self.w) + self.b
+        return 0.5/m  * np.sum((y_hat - self.Y)**2)
+
+    def fit(self, alpha, tolerance=1e-8, plot=None):
+        #last_cost = np.inf
+        m,_ = self.X.shape
+        epoch = 0
+        self.w = np.ones(len(self.X[0]))
+        self.b = 0
+        while epoch<1000:
+            print('Epoch: {}, w: {}, b: {}, cost: {}'.format(epoch, self.w, self.b, self.compute_cost()))
+            y_hat = np.dot(self.X, self.w) + self.b
+            dJ_dw = np.dot(self.X.T, (y_hat-self.Y))/m
+            dJ_db = np.sum(y_hat-self.Y)/m
+            self.w = self.w - (alpha * dJ_dw)
+            self.b = self.b - (alpha * dJ_db)
+            self.cost_history.append(self.compute_cost())
+            #last_cost = self.compute_cost()
+            epoch += 1
+        print('Epoch: {}, w: {}, b: {}, cost: {}'.format(epoch, self.w, self.b, self.compute_cost()))
+
+
+    def plot_learning_curve(self):
+        plt.figure(figsize=(16, 9))
+        plt.plot([i for i in range(len(self.cost_history))], self.cost_history, color='red')
+        plt.xlabel('# of iterations')
+        plt.ylabel('Cost')
+        plt.title('Learning Curve')
+        plt.grid(True)
+        plt.show()
+
+    def plot_predictions(self, X_test, y_test):
+        predictions = self.predict(X_test)
+        plt.figure(figsize=(16, 9))
+        plt.scatter(y_test, predictions, color='blue')
+        plt.plot([min(y_test), max(y_test)], [min(y_test), max(y_test)], color='red')
+        plt.xlabel('Actual Values')
+        plt.ylabel('Predicted Values')
+        plt.title('Actual vs Predicted Values')
+        plt.grid(True)
+        plt.show()
+
+    def plot_3d_regression(self):
+        x1, x2 = self.X[:, 0], self.X[:, 1]
+        y = self.Y
+
+        trace1 = go.Scatter3d(
+            x=x1,
+            y=x2,
+            z=y,
+            mode='markers',
+            marker=dict(
+                size=5,
+                color='blue',                # set color to an array/list of desired values
+                colorscale='Viridis',   # choose a colorscale
+                opacity=0.8
+            )
+        )
+
+        plane_x = np.linspace(min(x1), max(x1), 10)
+        plane_y = np.linspace(min(x2), max(x2), 10)
+        plane_x, plane_y = np.meshgrid(plane_x, plane_y)
+        plane_z = self.w[0] * plane_x + self.w[1] * plane_y + self.b
+
+        trace2 = go.Surface(
+            x=plane_x,
+            y=plane_y,
+            z=plane_z,
+            opacity=0.5,
+            showscale=False
+        )
+
+        data = [trace1, trace2]
+        layout = go.Layout(
+            title='3D Linear Regression',
+            scene=dict(
+                xaxis=dict(title='Feature 1'),
+                yaxis=dict(title='Feature 2'),
+                zaxis=dict(title='Target')
+            )
+        )
+
+        fig = go.Figure(data=data, layout=layout)
+        fig.show()
+
+if __name__ == '__main__':
+    from sklearn import datasets
+    from sklearn.model_selection import train_test_split
+    
+    def r2_score(y_true, y_pred):
+        corr_matrix = np.corrcoef(y_true, y_pred)
+        corr = corr_matrix[0, 1]
+        return corr ** 2
+    
+    X, y = datasets.make_regression(n_samples=10000,n_features=2,noise=20,random_state=12345)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=12345)
+    
+    regressor = MultipleLinearRegression(X_train, y_train)
+    regressor.fit(0.01)
+    prediction = regressor.predict(X_test)
+    regressor.plot_3d_regression()
+    print("Accuracy: ", r2_score(y_test, prediction))
+    print("MSE: ", regressor.compute_cost())
+        
 
 
